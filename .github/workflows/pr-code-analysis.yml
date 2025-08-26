@@ -25,13 +25,6 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Lint (non-blocking)
-        uses: golangci/golangci-lint-action@v5
-        continue-on-error: true
-        with:
-          version: latest
-          args: --timeout 5m --out-format=colored-line-number --issues-exit-code=0
-
       - name: Vet
         run: go vet ./...
 
