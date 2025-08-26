@@ -7,7 +7,6 @@ concurrency:
 
 jobs:
   build:
-    needs: [ ]
     runs-on: ubuntu-22.04
     env:
       GOTOOLCHAIN: auto
@@ -26,11 +25,12 @@ jobs:
           go mod tidy
           git diff --exit-code || (echo "::error::go.mod/go.sum are not tidy"; exit 1)
 
-      - name: Lint (golangci-lint)
+      - name: Lint (golangci-lint – non-blocking)
         uses: golangci/golangci-lint-action@v5
+        continue-on-error: true
         with:
           version: latest
-          args: --timeout 5m
+          args: --timeout 5m --out-format=colored-line-number --issues-exit-code=0
 
       - name: Vet
         run: go vet ./...

@@ -1,19 +1,23 @@
 name: Test
+
 on:
-  push: { branches: [main, dev] }
-  pull_request: { branches: [main, dev] }
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
 
 jobs:
   test:
     runs-on: ubuntu-22.04
     env:
       GOTOOLCHAIN: auto
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
@@ -30,14 +34,11 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Test
+      - name: Test (race + coverage)
         run: |
-          go test ./... -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage.out -v
+          go test ./... -race -covermode=atomic -coverprofile=coverage.out
           go tool cover -func=coverage.out | tee coverage.txt
           go tool cover -html=coverage.out -o coverage.html
-          # lcov
-          GOROOT=$(go env GOROOT) go install github.com/jandelgado/gcov2lcov@latest
-          "$(go env GOPATH)"/bin/gcov2lcov -infile=coverage.out -outfile=coverage.lcov
 
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4
@@ -47,4 +48,3 @@ jobs:
             coverage.out
             coverage.txt
             coverage.html
-            coverage.lcov
