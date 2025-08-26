@@ -1,0 +1,15 @@
+.git
+.github
+dist
+bin
+*.out
+*.log
+*.sqlite
+*.db
+.data
+.env
+.env.*
+node_modules
+.DS_Store
+.vscode
+.idea

@@ -1,0 +1,450 @@
+basePath: /api/v1
+consumes:
+- application/json
+definitions:
+  github_com_tbourn_go-chat-backend_internal_domain.Chat:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+      user_id:
+        type: string
+    type: object
+  github_com_tbourn_go-chat-backend_internal_domain.Message:
+    properties:
+      chat_id:
+        type: string
+      content:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      role:
+        type: string
+      score:
+        description: only for assistant messages
+        type: number
+      updated_at:
+        type: string
+    type: object
+  internal_http_handlers.CreateChatRequest:
+    properties:
+      title:
+        description: Title optionally sets the chat title; a default is used when
+          empty.
+        example: Customer insights UK
+        type: string
+    type: object
+  internal_http_handlers.ErrorResponse:
+    properties:
+      code:
+        description: Stable, machine-readable code (see errors.go constants)
+        example: not_found
+        type: string
+      message:
+        description: Human-readable message (safe to show to users)
+        example: resource not found
+        type: string
+      request_id:
+        description: Correlates server logs and client errors
+        example: 123e4567-e89b-12d3-a456-426614174000
+        type: string
+    type: object
+  internal_http_handlers.LeaveFeedbackRequest:
+    properties:
+      comment:
+        example: Looks good
+        type: string
+      value:
+        description: 'Value is the feedback signal: +1 (positive) or -1 (negative).'
+        enum:
+        - -1
+        - 1
+        example: 1
+        type: integer
+    required:
+    - value
+    type: object
+  internal_http_handlers.ListChatsResponse:
+    properties:
+      chats:
+        items:
+          $ref: '#/definitions/github_com_tbourn_go-chat-backend_internal_domain.Chat'
+        type: array
+      pagination:
+        $ref: '#/definitions/internal_http_handlers.Pagination'
+    type: object
+  internal_http_handlers.ListMessagesResponse:
+    properties:
+      messages:
+        items:
+          $ref: '#/definitions/github_com_tbourn_go-chat-backend_internal_domain.Message'
+        type: array
+      pagination:
+        $ref: '#/definitions/internal_http_handlers.Pagination'
+    type: object
+  internal_http_handlers.Pagination:
+    properties:
+      has_next:
+        type: boolean
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+      total_pages:
+        type: integer
+    type: object
+  internal_http_handlers.PostMessageRequest:
+    properties:
+      content:
+        description: Content is the user prompt. It must be non-empty.
+        example: What percentage of Gen Z in Nashville discover new brands through
+          podcasts?
+        minLength: 1
+        type: string
+    required:
+    - content
+    type: object
+  internal_http_handlers.PostMessageResponse:
+    properties:
+      message:
+        allOf:
+        - $ref: '#/definitions/github_com_tbourn_go-chat-backend_internal_domain.Message'
+        description: Message is the assistant reply created as a result of the request.
+    type: object
+  internal_http_handlers.UpdateChatTitleRequest:
+    properties:
+      title:
+        description: Title is the new chat name (1–255 chars).
+        example: Penetration - 18–24 UK
+        maxLength: 255
+        minLength: 1
+        type: string
+    required:
+    - title
+    type: object
+externalDocs:
+  description: Project documentation
+  url: https://github.com/tbourn/go-chat-backend
+info:
+  contact:
+    email: thomas.bournaveas@gmail.com
+    name: Thomas Bournaveas
+    url: https://thomasbournaveas.com
+  description: Public REST API for chat-based Q&A over market research data.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  title: Go Chat Backend API
+  version: 1.0.0
+paths:
+  /chats:
+    get:
+      description: Returns a page of the user's chats. Supports weak ETag via If-None-Match
+        and may return 304.
+      operationId: listChats
+      parameters:
+      - description: User ID (demo header)
+        example: user123
+        in: header
+        name: X-User-ID
+        type: string
+      - description: Return 304 if ETag matches
+        example: W/\"abc123\"
+        in: header
+        name: If-None-Match
+        type: string
+      - default: 1
+        description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - default: 20
+        description: Items per page
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          headers:
+            Cache-Control:
+              description: Caching directives (if set)
+              type: string
+            ETag:
+              description: Weak ETag for current result
+              type: string
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ListChatsResponse'
+        "304":
+          description: Not Modified
+          schema:
+            type: string
+        "400":
+          description: Bad request
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+      summary: List chats (paginated)
+      tags:
+      - Chats
+    post:
+      consumes:
+      - application/json
+      description: Creates a chat for the current user and returns the chat resource.
+      operationId: createChat
+      parameters:
+      - description: Create chat payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_http_handlers.CreateChatRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_tbourn_go-chat-backend_internal_domain.Chat'
+        "400":
+          description: Bad request
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+      summary: Create a new chat
+      tags:
+      - Chats
+  /chats/{id}/messages:
+    get:
+      description: Returns a paginated list of messages for the given chat.
+      operationId: listMessages
+      parameters:
+      - description: Chat ID (UUID)
+        format: uuid
+        in: path
+        name: id
+        required: true
+        type: string
+      - default: 1
+        description: Page number
+        in: query
+        minimum: 1
+        name: page
+        type: integer
+      - default: 20
+        description: Items per page
+        in: query
+        maximum: 100
+        minimum: 1
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ListMessagesResponse'
+        "400":
+          description: Bad request
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+        "404":
+          description: Chat not found
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+      summary: List messages in a chat
+      tags:
+      - Messages
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Appends a user message to the chat and generates an assistant reply.
+        Supports idempotency via the Idempotency-Key header (same key → same result).
+      operationId: postMessage
+      parameters:
+      - description: User ID that owns the chat
+        example: user123
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      - description: Idempotency key for safe retries (UUID recommended)
+        example: 7a8d9f4c-1b2a-4c3d-8e9f-0123456789ab
+        in: header
+        name: Idempotency-Key
+        type: string
+      - description: Chat ID (UUID)
+        format: uuid
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: User message payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_http_handlers.PostMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Assistant reply
+          schema:
+            $ref: '#/definitions/internal_http_handlers.PostMessageResponse'
+        "400":
+          description: Bad request
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+        "404":
+          description: Chat not found
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+      summary: Send a message and get assistant reply
+      tags:
+      - Messages
+  /chats/{id}/title:
+    put:
+      consumes:
+      - application/json
+      description: Updates the title of a chat owned by the current user.
+      operationId: updateChatTitle
+      parameters:
+      - description: User ID (demo header)
+        example: user123
+        in: header
+        name: X-User-ID
+        type: string
+      - description: Chat ID (UUID)
+        example: 141add05-4415-4938-b5a1-17e0d3171aff
+        format: uuid
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New title
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_http_handlers.UpdateChatTitleRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+        "400":
+          description: Bad request
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+        "404":
+          description: Chat not found
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+        "500":
+          description: Internal error
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+      summary: Rename a chat
+      tags:
+      - Chats
+  /messages/{id}/feedback:
+    post:
+      consumes:
+      - application/json
+      description: Records positive (+1) or negative (-1) feedback for an assistant
+        message.
+      operationId: leaveFeedback
+      parameters:
+      - description: User ID (demo header)
+        example: user123
+        in: header
+        name: X-User-ID
+        type: string
+      - description: Message ID (UUID)
+        example: fa4dfbe0-c3bf-47bd-b32f-d7de221cf43b
+        format: uuid
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Feedback payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_http_handlers.LeaveFeedbackRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: string
+        "400":
+          description: Invalid payload
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+        "403":
+          description: Not allowed to leave feedback
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+        "404":
+          description: Message not found
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+        "409":
+          description: Feedback already exists
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/internal_http_handlers.ErrorResponse'
+      summary: Leave feedback on a message
+      tags:
+      - Feedback
+produces:
+- application/json
+schemes:
+- http
+swagger: "2.0"
+tags:
+- description: Manage chat sessions and messages
+  name: Chats
+- description: Submit feedback on assistant messages
+  name: Feedback
+- description: Send messages and get assistant replies
+  name: Messages

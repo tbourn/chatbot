@@ -1,0 +1,52 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-22.04
+    env:
+      GOTOOLCHAIN: auto
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: Run gosec (static security analysis)
+        run: |
+          gosec -fmt=json -out gosec-report.json ./... || true
+          sudo apt-get update && sudo apt-get install -y jq
+          if jq -e '.Issues[] | select(.Severity=="HIGH" or .Severity=="CRITICAL")' gosec-report.json >/dev/null; then
+            echo "::error::High/Critical issues found by gosec"
+            exit 1
+          fi
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          format: table
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          output: trivy-report.txt
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            gosec-report.json
+            trivy-report.txt

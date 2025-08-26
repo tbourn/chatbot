@@ -1,0 +1,85 @@
+name: go-chat-backend
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-prod}
+        COMMIT: ${COMMIT:-local}
+        DATE: ${DATE:-unknown}
+    image: ${IMAGE_NAME:-tbourn/go-chat-backend}:${IMAGE_TAG:-latest}
+    user: "65532:65532"
+
+    environment:
+      # Container-specific overrides
+      PORT: ${PORT:-8080}
+      DB_PATH: /data/app.db
+      DATA_MD: /app/data/data.md
+
+      # Feature toggles / thresholds
+      THRESHOLD: ${THRESHOLD:-0.32}
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-0}
+      DEBUG_INDEX_PROBE: ${DEBUG_INDEX_PROBE:-0}
+
+      # Logging & mode
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_PRETTY: ${LOG_PRETTY:-0}     # usually 0 in containers
+      GIN_MODE: ${GIN_MODE:-release}
+
+      # Rate limiting
+      RATE_RPS: ${RATE_RPS:-5}
+      RATE_BURST: ${RATE_BURST:-10}
+
+      # CORS / Security / Timeouts (pass-through from .env)
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      ENABLE_HSTS: ${ENABLE_HSTS:-0}
+      READ_TIMEOUT: ${READ_TIMEOUT:-15s}
+      WRITE_TIMEOUT: ${WRITE_TIMEOUT:-20s}
+      READ_HEADER_TIMEOUT: ${READ_HEADER_TIMEOUT:-10s}
+      IDLE_TIMEOUT: ${IDLE_TIMEOUT:-60s}
+      HSTS_MAX_AGE: ${HSTS_MAX_AGE:-31536000s}
+      IDEMPOTENCY_TTL: ${IDEMPOTENCY_TTL:-24h}
+
+      # OpenTelemetry (gRPC, no scheme)
+      OTEL_ENABLED: ${OTEL_ENABLED:-1}
+      OTEL_EXPORTER_OTLP_ENDPOINT: otel:4317
+      OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-go-chat-backend}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
+
+    ports:
+      - "${PORT:-8080}:8080"
+
+    volumes:
+      - type: bind
+        source: ./.data
+        target: /data
+      - type: bind
+        source: ./data
+        target: /app/data
+        read_only: true
+
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+    restart: unless-stopped
+    networks: [go-chat-net]
+    depends_on: [otel]
+
+  otel:
+    image: otel/opentelemetry-collector:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel/collector.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"   # gRPC receiver
+    restart: unless-stopped
+    networks: [go-chat-net]
+
+networks:
+  go-chat-net:
+    driver: bridge

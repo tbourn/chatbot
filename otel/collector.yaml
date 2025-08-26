@@ -1,0 +1,34 @@
+extensions:
+  health_check: {}
+  pprof: {}
+  zpages: {}
+
+receivers:
+  otlp:
+    protocols:
+      grpc: {} # listens on 0.0.0.0:4317 inside the container
+
+processors:
+  memory_limiter:
+    # Keep the collector stable under pressure (percentages adapt to container limits)
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  batch:
+    send_batch_size: 1024
+    timeout: 1s
+
+exporters:
+  logging:
+    loglevel: info # see spans in `docker compose logs -f otel`
+
+service:
+  telemetry:
+    metrics:
+      address: 0.0.0.0:8888 # collector’s own metrics (optional; not exposed by default)
+  extensions: [health_check, pprof, zpages]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [logging]
