@@ -14,6 +14,9 @@
 *.pprof
 *.out
 coverage.out
+coverage.html
+coverage.lcov
+app.db
 *.coverprofile
 
 # Optional vendor dir (uncomment if you don't vendor)
