@@ -25,7 +25,7 @@ require (
 	golang.org/x/text v0.28.0
 	golang.org/x/time v0.12.0
 	google.golang.org/grpc v1.75.0
-	gorm.io/gorm v1.30.1
+	gorm.io/gorm v1.30.3
 	gorm.io/plugin/opentelemetry v0.1.16
 )
 
