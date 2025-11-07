@@ -28,8 +28,10 @@ func OpenSQLite(path string) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	// PRAGMAs
-	db.Exec("PRAGMA journal_mode=WAL;")
+        // PRAGMAs
+        // WAL improves concurrent read performance for our API workload while
+        // still allowing the single-writer pattern SQLite enforces.
+        db.Exec("PRAGMA journal_mode=WAL;")
 	db.Exec("PRAGMA synchronous=NORMAL;")
 	db.Exec("PRAGMA foreign_keys=ON;")
 	db.Exec("PRAGMA busy_timeout=5000;")

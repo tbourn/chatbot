@@ -52,7 +52,9 @@ services:
     ports:
       - "${PORT:-8080}:8080"
 
-    volumes:
+      # Persist application state (SQLite) and make Markdown sources editable
+      # without rebuilding the container. The app filesystem stays read-only.
+      volumes:
       - type: bind
         source: ./.data
         target: /data

@@ -170,18 +170,8 @@ func main() {
 	}
 
 	// ---------- Router & middleware ----------
-	r := gin.New()
-	r.Use(gzip.Gzip(gzip.DefaultCompression))
-
-	// Simple user identity stub
-	r.Use(func(c *gin.Context) {
-		uid := strings.TrimSpace(c.GetHeader("X-User-ID"))
-		if uid == "" {
-			uid = "demo-user"
-		}
-		c.Set("userID", uid)
-		c.Next()
-	})
+        r := gin.New()
+        r.Use(gzip.Gzip(gzip.DefaultCompression))
 
 	// Wire routes (otel, metrics, cors, security, api, etc. are set inside)
 	httpapi.RegisterRoutes(r, db, idx, cfg)

@@ -90,6 +90,33 @@ func (stubFBSvcChat) Leave(ctx context.Context, userID, messageID string, value 
 	return nil
 }
 
+type stubIdemSvc struct {
+	exists func(context.Context, string, string, string, time.Time) (bool, error)
+	replay func(context.Context, string, string, string, time.Time) (*domain.Message, bool, error)
+	record func(context.Context, string, string, string, string, int) error
+}
+
+func (s stubIdemSvc) Exists(ctx context.Context, user, chat, key string, now time.Time) (bool, error) {
+	if s.exists != nil {
+		return s.exists(ctx, user, chat, key, now)
+	}
+	return false, nil
+}
+
+func (s stubIdemSvc) Replay(ctx context.Context, user, chat, key string, now time.Time) (*domain.Message, bool, error) {
+	if s.replay != nil {
+		return s.replay(ctx, user, chat, key, now)
+	}
+	return nil, false, nil
+}
+
+func (s stubIdemSvc) Record(ctx context.Context, user, chat, key, messageID string, status int) error {
+	if s.record != nil {
+		return s.record(ctx, user, chat, key, messageID, status)
+	}
+	return nil
+}
+
 // Flexible chat service stub for UpdateTitle tests
 type stubChatSvcChat struct {
 	create    func(context.Context, string, string) (*domain.Chat, error)
@@ -126,51 +153,6 @@ func (s stubChatSvcChat) UpdateTitle(ctx context.Context, u, id, t string) error
 	return nil
 }
 
-// ---------- helpers-only tests ----------
-
-func Test_userID_and_clampPagination(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	// userID helper
-	rc := gin.CreateTestContextOnly(httptest.NewRecorder(), gin.New())
-	if got := userID(rc); got != "demo-user" {
-		t.Fatalf("fallback userID = %q", got)
-	}
-	rc.Set("userID", "u1")
-	if got := userID(rc); got != "u1" {
-		t.Fatalf("ctx userID = %q", got)
-	}
-	rc.Set("userID", 123) // wrong type → fallback
-	if got := userID(rc); got != "demo-user" {
-		t.Fatalf("wrong-type fallback userID = %q", got)
-	}
-
-	// header fallback
-	cH, _ := gin.CreateTestContext(httptest.NewRecorder())
-	reqH := httptest.NewRequest("GET", "/", nil)
-	reqH.Header.Set("X-User-ID", "u-123")
-	cH.Request = reqH
-	if got := userID(cH); got != "u-123" {
-		t.Fatalf("header fallback userID = %q", got)
-	}
-
-	// clampPagination bounds
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	req := httptest.NewRequest("GET", "/?page=-5&page_size=9999", nil)
-	c.Request = req
-	p, ps := clampPagination(c)
-	if p != 1 || ps != 100 {
-		t.Fatalf("clamp bounds got p=%d ps=%d", p, ps)
-	}
-	c, _ = gin.CreateTestContext(httptest.NewRecorder())
-	req = httptest.NewRequest("GET", "/?page=&page_size=0", nil)
-	c.Request = req
-	p, ps = clampPagination(c)
-	if p != 1 || ps != 1 {
-		t.Fatalf("clamp defaults got p=%d ps=%d", p, ps)
-	}
-}
-
 // ---------- CreateChat ----------
 
 func TestCreateChat_BadJSON_Success_Internal(t *testing.T) {
@@ -178,7 +160,7 @@ func TestCreateChat_BadJSON_Success_Internal(t *testing.T) {
 
 	// Bad JSON -> 400
 	{
-		h := New(stubChatSvcChat{}, stubMsgSvcChat{}, stubFBSvcChat{})
+		h := New(stubChatSvcChat{}, stubMsgSvcChat{}, stubFBSvcChat{}, stubIdemSvc{})
 		r := gin.New()
 		r.POST("/chats", h.CreateChat)
 
@@ -195,7 +177,7 @@ func TestCreateChat_BadJSON_Success_Internal(t *testing.T) {
 	{
 		db := newChatDB(t)
 		svc := services.NewChatService(db, testChatRepo{})
-		h := New(svc, stubMsgSvcChat{}, stubFBSvcChat{})
+		h := New(svc, stubMsgSvcChat{}, stubFBSvcChat{}, stubIdemSvc{})
 		r := gin.New()
 		r.POST("/chats", h.CreateChat)
 
@@ -222,7 +204,7 @@ func TestCreateChat_BadJSON_Success_Internal(t *testing.T) {
 				return nil, gorm.ErrInvalidField
 			},
 		}
-		h := New(errSvc, stubMsgSvcChat{}, stubFBSvcChat{})
+		h := New(errSvc, stubMsgSvcChat{}, stubFBSvcChat{}, stubIdemSvc{})
 		r := gin.New()
 		r.POST("/chats", h.CreateChat)
 
@@ -243,7 +225,7 @@ func TestListChats_ETag304_and_SuccessPage(t *testing.T) {
 	db := newChatDB(t)
 	repoShim := testChatRepo{}
 	svc := services.NewChatService(db, repoShim)
-	h := New(svc, stubMsgSvcChat{}, stubFBSvcChat{})
+	h := New(svc, stubMsgSvcChat{}, stubFBSvcChat{}, stubIdemSvc{})
 
 	// Seed chats for user u1
 	now := time.Now().UTC()
@@ -310,12 +292,12 @@ func TestUpdateChatTitle_UUID_Binding_Success_NotFound(t *testing.T) {
 
 	// bad UUID
 	{
-		h := New(stubChatSvcChat{}, stubMsgSvcChat{}, stubFBSvcChat{})
+		h := New(stubChatSvcChat{}, stubMsgSvcChat{}, stubFBSvcChat{}, stubIdemSvc{})
 		r := gin.New()
-		r.PUT("/chats/:id/title", h.UpdateChatTitle)
+		r.PATCH("/chats/:id", h.UpdateChatTitle)
 
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPut, "/chats/not-uuid/title", bytes.NewBufferString(`{"title":"x"}`))
+		req := httptest.NewRequest(http.MethodPatch, "/chats/not-uuid", bytes.NewBufferString(`{"title":"x"}`))
 		req.Header.Set("X-User-ID", "u1")
 		r.ServeHTTP(w, req)
 		if w.Code != http.StatusBadRequest {
@@ -325,12 +307,12 @@ func TestUpdateChatTitle_UUID_Binding_Success_NotFound(t *testing.T) {
 
 	// empty title -> 400
 	{
-		h := New(stubChatSvcChat{}, stubMsgSvcChat{}, stubFBSvcChat{})
+		h := New(stubChatSvcChat{}, stubMsgSvcChat{}, stubFBSvcChat{}, stubIdemSvc{})
 		r := gin.New()
-		r.PUT("/chats/:id/title", h.UpdateChatTitle)
+		r.PATCH("/chats/:id", h.UpdateChatTitle)
 
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPut, "/chats/"+uuid.NewString()+"/title", bytes.NewBufferString(`{"title":"   "}`))
+		req := httptest.NewRequest(http.MethodPatch, "/chats/"+uuid.NewString(), bytes.NewBufferString(`{"title":"   "}`))
 		req.Header.Set("X-User-ID", "u1")
 		r.ServeHTTP(w, req)
 		if w.Code != http.StatusBadRequest {
@@ -347,13 +329,13 @@ func TestUpdateChatTitle_UUID_Binding_Success_NotFound(t *testing.T) {
 				return nil
 			},
 		}
-		h := New(okSvc, stubMsgSvcChat{}, stubFBSvcChat{})
+		h := New(okSvc, stubMsgSvcChat{}, stubFBSvcChat{}, stubIdemSvc{})
 		r := gin.New()
-		r.PUT("/chats/:id/title", h.UpdateChatTitle)
+		r.PATCH("/chats/:id", h.UpdateChatTitle)
 
 		chatID := uuid.NewString()
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPut, "/chats/"+chatID+"/title", bytes.NewBufferString(`{"title":"New Name"}`))
+		req := httptest.NewRequest(http.MethodPatch, "/chats/"+chatID, bytes.NewBufferString(`{"title":"New Name"}`))
 		req.Header.Set("X-User-ID", "U-9")
 		r.ServeHTTP(w, req)
 		if w.Code != http.StatusNoContent {
@@ -369,12 +351,12 @@ func TestUpdateChatTitle_UUID_Binding_Success_NotFound(t *testing.T) {
 		errSvc := stubChatSvcChat{
 			updateTit: func(context.Context, string, string, string) error { return gorm.ErrRecordNotFound },
 		}
-		h := New(errSvc, stubMsgSvcChat{}, stubFBSvcChat{})
+		h := New(errSvc, stubMsgSvcChat{}, stubFBSvcChat{}, stubIdemSvc{})
 		r := gin.New()
-		r.PUT("/chats/:id/title", h.UpdateChatTitle)
+		r.PATCH("/chats/:id", h.UpdateChatTitle)
 
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPut, "/chats/"+uuid.NewString()+"/title", bytes.NewBufferString(`{"title":"X"}`))
+		req := httptest.NewRequest(http.MethodPatch, "/chats/"+uuid.NewString(), bytes.NewBufferString(`{"title":"X"}`))
 		req.Header.Set("X-User-ID", "u1")
 		r.ServeHTTP(w, req)
 		if w.Code != http.StatusNotFound {
@@ -392,7 +374,7 @@ func TestListChats_SkipETagPrecheck_And_ListError(t *testing.T) {
 			return nil, 0, gorm.ErrInvalidField
 		},
 	}
-	h := New(svc, stubMsgSvcChat{}, stubFBSvcChat{})
+	h := New(svc, stubMsgSvcChat{}, stubFBSvcChat{}, stubIdemSvc{})
 
 	r := gin.New()
 	r.GET("/chats", h.ListChats)
@@ -415,7 +397,7 @@ func TestListChats_EmptyState_SetsETag_WithZeroTS(t *testing.T) {
 	// Real service with migrated DB, but no chats for this user → count=0, maxTS=nil.
 	db := newChatDB(t)
 	svc := services.NewChatService(db, testChatRepo{})
-	h := New(svc, stubMsgSvcChat{}, stubFBSvcChat{})
+	h := New(svc, stubMsgSvcChat{}, stubFBSvcChat{}, stubIdemSvc{})
 
 	r := gin.New()
 	r.GET("/chats", h.ListChats)

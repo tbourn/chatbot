@@ -13,7 +13,8 @@
 //
 // Notes:
 //   - This limiter is process-local. For horizontally scaled deployments,
-//     prefer a distributed limiter (e.g., Redis-backed) to enforce global limits.
+//     prefer a distributed limiter (e.g., Redis-backed) to enforce global limits
+//     or offload the concern entirely to an API gateway / service mesh.
 //   - The limiter is intended for edge-level abuse control and cost protection;
 //     it is not an authorization mechanism.
 package middleware

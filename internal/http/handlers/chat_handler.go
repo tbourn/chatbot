@@ -11,18 +11,20 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
 	"github.com/tbourn/go-chat-backend/internal/domain"
+	"github.com/tbourn/go-chat-backend/internal/http/ctxutil"
 	"github.com/tbourn/go-chat-backend/internal/repo"
 	"github.com/tbourn/go-chat-backend/internal/services"
-	"github.com/tbourn/go-chat-backend/internal/utils"
 )
 
 //
@@ -64,6 +66,14 @@ type FeedbackService interface {
 	Leave(ctx context.Context, userID, messageID string, value int) error
 }
 
+// IdempotencyService handles lookup/recording of idempotent request results.
+// It is injected so handlers remain agnostic of the persistence details.
+type IdempotencyService interface {
+	Exists(ctx context.Context, userID, chatID, key string, now time.Time) (bool, error)
+	Replay(ctx context.Context, userID, chatID, key string, now time.Time) (*domain.Message, bool, error)
+	Record(ctx context.Context, userID, chatID, key string, messageID string, status int) error
+}
+
 //
 // Handler wiring
 //
@@ -75,28 +85,12 @@ type Handlers struct {
 	chatSvc ChatService
 	msgSvc  MessageService
 	fbSvc   FeedbackService
+	idemSvc IdempotencyService
 }
 
 // New constructs and returns a Handlers instance bound to the given services.
-func New(chatSvc ChatService, msgSvc MessageService, fbSvc FeedbackService) *Handlers {
-	return &Handlers{chatSvc: chatSvc, msgSvc: msgSvc, fbSvc: fbSvc}
-}
-
-// userID extracts the authenticated user id from Gin context (set by upstream
-// middleware). If absent, it falls back to "X-User-ID" header (tests use it),
-// and finally to "demo-user". It never touches c.Request if it's nil.
-func userID(c *gin.Context) string {
-	if v, ok := c.Get("userID"); ok {
-		if s, ok := v.(string); ok && s != "" {
-			return s
-		}
-	}
-	if c != nil && c.Request != nil {
-		if h := strings.TrimSpace(c.GetHeader("X-User-ID")); h != "" {
-			return h
-		}
-	}
-	return "demo-user"
+func New(chatSvc ChatService, msgSvc MessageService, fbSvc FeedbackService, idemSvc IdempotencyService) *Handlers {
+	return &Handlers{chatSvc: chatSvc, msgSvc: msgSvc, fbSvc: fbSvc, idemSvc: idemSvc}
 }
 
 //
@@ -134,28 +128,6 @@ type ListChatsResponse struct {
 // Helpers
 //
 
-// clampPagination parses and bounds page and page_size query params to sane
-// defaults and limits, returning (page, pageSize).
-func clampPagination(c *gin.Context) (page, pageSize int) {
-	const (
-		defaultPage     = 1
-		defaultPageSize = 20
-		maxPageSize     = 100
-	)
-	page = utils.AtoiDefault(c.Query("page"), defaultPage)
-	if page < 1 {
-		page = 1
-	}
-	pageSize = utils.AtoiDefault(c.Query("page_size"), defaultPageSize)
-	if pageSize < 1 {
-		pageSize = 1
-	}
-	if pageSize > maxPageSize {
-		pageSize = maxPageSize
-	}
-	return
-}
-
 //
 // Handlers
 //
@@ -183,7 +155,7 @@ func (h *Handlers) CreateChat(c *gin.Context) {
 	}
 	title := strings.TrimSpace(req.Title)
 
-	ch, err := h.chatSvc.Create(c.Request.Context(), userID(c), title)
+	ch, err := h.chatSvc.Create(c.Request.Context(), ctxutil.UserID(c), title)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, ErrCodeCreateFailed, err.Error())
 		return
@@ -212,8 +184,12 @@ func (h *Handlers) CreateChat(c *gin.Context) {
 // @Router      /chats [get]
 func (h *Handlers) ListChats(c *gin.Context) {
 	ctx := c.Request.Context()
-	uid := userID(c)
-	page, pageSize := clampPagination(c)
+	uid := ctxutil.UserID(c)
+	page, pageSize := ctxutil.PaginationParams(c, ctxutil.PaginationConfig{
+		DefaultPage:     1,
+		DefaultPageSize: 20,
+		MaxPageSize:     100,
+	})
 
 	// ETag pre-check (best effort).
 	var db *gorm.DB
@@ -273,7 +249,7 @@ func (h *Handlers) ListChats(c *gin.Context) {
 // @Failure     400  {object} handlers.ErrorResponse "Bad request"
 // @Failure     404  {object} handlers.ErrorResponse "Chat not found"
 // @Failure     500  {object} handlers.ErrorResponse "Internal error"
-// @Router      /chats/{id}/title [put]
+// @Router      /chats/{id} [patch]
 func (h *Handlers) UpdateChatTitle(c *gin.Context) {
 	chatID := c.Param("id")
 	if _, err := uuid.Parse(chatID); err != nil {
@@ -287,8 +263,12 @@ func (h *Handlers) UpdateChatTitle(c *gin.Context) {
 		return
 	}
 
-	if err := h.chatSvc.UpdateTitle(c.Request.Context(), userID(c), chatID, req.Title); err != nil {
-		fail(c, http.StatusNotFound, ErrCodeNotFound, "chat not found")
+	if err := h.chatSvc.UpdateTitle(c.Request.Context(), ctxutil.UserID(c), chatID, req.Title); err != nil {
+		if errors.Is(err, services.ErrChatNotFound) {
+			fail(c, http.StatusNotFound, ErrCodeNotFound, "chat not found")
+			return
+		}
+		fail(c, http.StatusInternalServerError, ErrCodeInternal, err.Error())
 		return
 	}
 
