@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/tbourn/go-chat-backend/internal/http/ctxutil"
 	"github.com/tbourn/go-chat-backend/internal/services"
 )
 
@@ -57,8 +58,8 @@ func (h *Handlers) LeaveFeedback(c *gin.Context) {
 		return
 	}
 
-	// Pull user from context → header → demo fallback (implemented in chat_handler.go)
-	uid := userID(c)
+	// Pull user from context → header → demo fallback.
+	uid := ctxutil.UserID(c)
 	messageID := c.Param("id")
 
 	if err := h.fbSvc.Leave(c.Request.Context(), uid, messageID, req.Value); err != nil {

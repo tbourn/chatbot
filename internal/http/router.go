@@ -89,42 +89,39 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, idx search.Index, cfg config.Con
 	// 2) Correlate requests and logs
 	r.Use(middleware.RequestID())
 
-	// 3) Structured logging with redaction
-	r.Use(middleware.RedactingLogger(middleware.RedactOptions{
-		MaskHeaders: []string{
-			"X-API-Key", // project-specific sensitive header example
-		},
-	}))
+        // 3) Structured logging with redaction
+        r.Use(middleware.RedactingLogger(middleware.RedactOptions{
+                MaskHeaders: cfg.RedactHeaders,
+        }))
 
-	// 4) Panic recovery to JSON 500 (with request id)
-	r.Use(middleware.Recovery())
+        // 4) Development user stub (no-op when upstream auth already set a user)
+        r.Use(middleware.DemoUser())
 
-	// 5) Global body size limit (1 MiB)
-	r.Use(limitBody(1 << 20))
+        // 5) Panic recovery to JSON 500 (with request id)
+        r.Use(middleware.Recovery())
 
-	// 6) Prometheus metrics and /metrics endpoint
-	r.Use(middleware.Metrics())
-	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+        // 6) Global body size limit (1 MiB)
+        r.Use(limitBody(1 << 20))
 
-	// 7) Idempotency validation (before rate limiting)
-	r.Use(middleware.IdempotencyValidator(
-		middleware.IdempotencyOptions{
-			MaxLen: 200,
-		},
-		func(ctx context.Context, userID, chatID, key string, now time.Time) (bool, error) {
-			rec, err := repo.GetIdempotency(ctx, db, userID, chatID, key, now)
-			if err != nil || rec == nil {
-				return false, nil
-			}
-			return true, nil
-		},
-	))
+        // 7) Prometheus metrics and /metrics endpoint
+        r.Use(middleware.Metrics())
+        r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	// 8) Token-bucket rate limiter per user/IP
-	rl := middleware.NewRateLimiter(cfg.RateRPS, cfg.RateBurst, middleware.KeyByUserOrIP())
-	r.Use(rl.Handler())
+        idemSvc := services.NewIdempotencyService(db, cfg.IdempotencyTTL)
 
-	// 9) CORS posture (safe defaults: allow all if none configured)
+        // 8) Idempotency validation (before rate limiting)
+        r.Use(middleware.IdempotencyValidator(
+                middleware.IdempotencyOptions{
+                        MaxLen: 200,
+                },
+                idemSvc.Exists,
+        ))
+
+        // 9) Token-bucket rate limiter per user/IP
+        rl := middleware.NewRateLimiter(cfg.RateRPS, cfg.RateBurst, middleware.KeyByUserOrIP())
+        r.Use(rl.Handler())
+
+        // 10) CORS posture (safe defaults: allow all if none configured)
 	if len(cfg.CORS.AllowedOrigins) == 0 {
 		// Force ACAO: * even for requests without an Origin header (helps tests and simple health checks).
 		r.Use(func(c *gin.Context) {
@@ -185,19 +182,19 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, idx search.Index, cfg config.Con
 	r.GET("/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
 
 	// Dependency injection: services ← repo/db/index
-	chatSvc := services.NewChatService(db, chatRepoShim{})
-	msgSvc := &services.MessageService{
-		DB:             db,
-		Index:          idx,
-		Threshold:      cfg.Threshold,
-		MaxPromptRunes: 2000,
-		MaxReplyRunes:  1500,
-		TitleMaxLen:    6,
-		TitleLocale:    language.English,
-	}
+        chatSvc := services.NewChatService(db, chatRepoShim{})
+        msgSvc := &services.MessageService{
+                DB:             db,
+                Index:          idx,
+                Threshold:      cfg.Threshold,
+                MaxPromptRunes: 2000,
+                MaxReplyRunes:  1500,
+                TitleMaxLen:    6,
+                TitleLocale:    language.English,
+        }
 
-	fbSvc := &services.FeedbackService{DB: db}
-	h := handlers.New(chatSvc, msgSvc, fbSvc)
+        fbSvc := &services.FeedbackService{DB: db}
+        h := handlers.New(chatSvc, msgSvc, fbSvc, idemSvc)
 
 	// Public API
 	apiBase := cfg.APIBasePath // e.g. "/api/v1"
@@ -206,7 +203,7 @@ func RegisterRoutes(r *gin.Engine, db *gorm.DB, idx search.Index, cfg config.Con
 		// Chats
 		api.POST("/chats", h.CreateChat)
 		api.GET("/chats", h.ListChats)
-		api.PUT("/chats/:id/title", h.UpdateChatTitle)
+                api.PATCH("/chats/:id", h.UpdateChatTitle)
 
 		// Messages
 		api.GET("/chats/:id/messages", h.ListMessages)

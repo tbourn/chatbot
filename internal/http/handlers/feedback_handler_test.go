@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -54,6 +55,18 @@ func (s stubFBSvc) Leave(ctx context.Context, userID, messageID string, value in
 	return s.fn(ctx, userID, messageID, value)
 }
 
+type stubIdemSvc struct{}
+
+func (stubIdemSvc) Exists(context.Context, string, string, string, time.Time) (bool, error) {
+	return false, nil
+}
+
+func (stubIdemSvc) Replay(context.Context, string, string, string, time.Time) (*domain.Message, bool, error) {
+	return nil, false, nil
+}
+
+func (stubIdemSvc) Record(context.Context, string, string, string, string, int) error { return nil }
+
 // ---- tests ----
 
 func TestLeaveFeedback_BindingError(t *testing.T) {
@@ -62,7 +75,7 @@ func TestLeaveFeedback_BindingError(t *testing.T) {
 		t.Fatalf("service should not be called on binding error")
 		return nil
 	}}
-	h := New(stubChatSvcFeedback{}, stubMsgSvcFeedback{}, fb)
+	h := New(stubChatSvcFeedback{}, stubMsgSvcFeedback{}, fb, stubIdemSvc{})
 
 	r := gin.New()
 	r.POST("/messages/:id/feedback", h.LeaveFeedback)
@@ -115,7 +128,7 @@ func TestLeaveFeedback_ErrorMappings(t *testing.T) {
 				}
 				return tc.err
 			}}
-			h := New(stubChatSvcFeedback{}, stubMsgSvcFeedback{}, fb)
+			h := New(stubChatSvcFeedback{}, stubMsgSvcFeedback{}, fb, stubIdemSvc{})
 
 			r := gin.New()
 			r.POST("/messages/:id/feedback", h.LeaveFeedback)
@@ -157,7 +170,7 @@ func TestLeaveFeedback_Success204(t *testing.T) {
 		got.val = value
 		return nil
 	}}
-	h := New(stubChatSvcFeedback{}, stubMsgSvcFeedback{}, fb)
+	h := New(stubChatSvcFeedback{}, stubMsgSvcFeedback{}, fb, stubIdemSvc{})
 
 	r := gin.New()
 	r.POST("/messages/:id/feedback", h.LeaveFeedback)

@@ -1,8 +1,6 @@
 module github.com/tbourn/go-chat-backend
 
-go 1.23.0
-
-toolchain go1.23.6
+go 1.22
 
 require (
 	github.com/gin-contrib/cors v1.7.6

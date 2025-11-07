@@ -9,6 +9,9 @@
 //   - Safe defaults for APIs: no CSP here (only relevant when serving HTML)
 //   - HSTS is opt-in and only applied when the request is actually HTTPS
 //   - Header values are idempotent and inexpensive to compute per request
+//   - Shipping these headers at the app layer keeps the container self-contained
+//     for local/dev usage while still allowing upstream proxies to disable them
+//     (e.g., by terminating TLS and stripping Strict-Transport-Security).
 package middleware
 
 import (

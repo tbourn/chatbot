@@ -10,10 +10,13 @@ import "time"
 // operations by returning the originally produced response without re-executing
 // side effects.
 type Idempotency struct {
-	ID        string    `gorm:"type:TEXT NOT NULL;primaryKey"`
-	UserID    string    `gorm:"type:TEXT NOT NULL;uniqueIndex:ux_user_chat_key,priority:1"`
-	ChatID    string    `gorm:"type:TEXT NOT NULL;uniqueIndex:ux_user_chat_key,priority:2"`
-	Key       string    `gorm:"type:TEXT NOT NULL;uniqueIndex:ux_user_chat_key,priority:3"`
+        ID        string    `gorm:"type:TEXT NOT NULL;primaryKey"`
+        // Priority enforces a deterministic composite unique index ordering on
+        // SQLite so lookups can use the (user_id, chat_id, key) tuple without
+        // additional columns.
+        UserID    string    `gorm:"type:TEXT NOT NULL;uniqueIndex:ux_user_chat_key,priority:1"`
+        ChatID    string    `gorm:"type:TEXT NOT NULL;uniqueIndex:ux_user_chat_key,priority:2"`
+        Key       string    `gorm:"type:TEXT NOT NULL;uniqueIndex:ux_user_chat_key,priority:3"`
 	MessageID string    `gorm:"type:TEXT NOT NULL"`
 	Status    int       `gorm:"type:INTEGER NOT NULL"`
 	CreatedAt time.Time `gorm:"type:DATETIME NOT NULL;autoCreateTime"`

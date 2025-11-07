@@ -3,7 +3,7 @@
 ############################
 # Global build args (visible to all stages)
 ############################
-ARG GO_VERSION=1.23
+ARG GO_VERSION=1.22.6
 ARG VERSION=dev
 ARG COMMIT=unknown
 ARG DATE=unknown
@@ -11,7 +11,9 @@ ARG DATE=unknown
 ############################
 # Build stage
 ############################
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}@sha256:1cf6c45ba39db9fd6db16922041d074a63c935556a05c5ccb62d181034df7f02 AS build
+# Pin the Go toolchain by tag so `GO_VERSION` stays configurable without
+# breaking the FROM line. Distroless stays digest-pinned for supply-chain safety.
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS build
 WORKDIR /src
 
 # Re-import global args into this stage's scope
@@ -19,8 +21,10 @@ ARG VERSION
 ARG COMMIT
 ARG DATE
 
+# The project uses the pure-Go SQLite driver, so CGO can stay disabled to
+# produce a portable static binary.
 ENV GOTOOLCHAIN=auto \
-    CGO_ENABLED=1
+    CGO_ENABLED=0
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -59,7 +63,7 @@ LABEL org.opencontainers.image.title="go-chat-backend" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT}" \
       org.opencontainers.image.created="${DATE}" \
-      org.opencontainers.image.source="https://github.com/your/repo" \
+      org.opencontainers.image.source="https://github.com/tbourn/go-chat-backend" \
       org.opencontainers.image.licenses="MIT"
 
 USER 65532:65532

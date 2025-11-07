@@ -19,6 +19,9 @@ import (
 //   - Title: human-readable chat title (auto-generated if not provided).
 //   - CreatedAt / UpdatedAt: timestamps managed by GORM.
 //   - DeletedAt: soft deletion marker (retains row for audit/history).
+//
+// We intentionally do not embed gorm.Model because the default integer ID and
+// timestamp fields do not match our UUID/string key strategy.
 type Chat struct {
 	ID        string         `json:"id"        gorm:"type:char(36);primaryKey"`
 	UserID    string         `json:"user_id"   gorm:"type:varchar(64);not null;index:idx_user_chats"`
@@ -44,6 +47,9 @@ func (Chat) TableName() string { return "chats" }
 //   - CreatedAt / UpdatedAt: timestamps managed by GORM.
 //   - DeletedAt: soft deletion marker.
 //   - Chat: FK association, ensures cascade delete/update.
+//
+// We intentionally avoid gorm.Model here for the same reason as Chat: the
+// built-in uint primary key does not align with UUID identifiers.
 type Message struct {
 	ID        string         `json:"id"        gorm:"type:char(36);primaryKey"`
 	ChatID    string         `json:"chat_id"   gorm:"type:char(36);not null;index:idx_chat_msgs,priority:1"`
@@ -73,6 +79,8 @@ func (Message) TableName() string { return "messages" }
 //   - CreatedAt / UpdatedAt: timestamps managed by GORM.
 //   - DeletedAt: soft deletion marker.
 //   - Message: FK association, ensures cascade delete/update.
+//
+// Feedback keeps string UUIDs as primary keys, so we avoid gorm.Model here as well.
 type Feedback struct {
 	ID        string         `json:"id"         gorm:"type:char(36);primaryKey"`
 	MessageID string         `json:"message_id" gorm:"type:char(36);not null;index;uniqueIndex:ux_feedback_message_user"`

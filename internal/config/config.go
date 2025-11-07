@@ -43,10 +43,11 @@ type Config struct {
 	GinMode           string        // debug|release|test
 
 	// Logging / Docs
-	LogLevel       string // debug|info|warn|error|fatal|panic
-	LogPretty      bool   // pretty console logs in dev
-	SwaggerEnabled bool   // enable Swagger UI route
-	APIBasePath    string // base path for API routes
+	LogLevel       string   // debug|info|warn|error|fatal|panic
+	LogPretty      bool     // pretty console logs in dev
+	RedactHeaders  []string // headers to mask in access logs
+	SwaggerEnabled bool     // enable Swagger UI route
+	APIBasePath    string   // base path for API routes
 
 	// App
 	DBPath    string  // SQLite path
@@ -94,6 +95,7 @@ func Load() (Config, error) {
 		// Logging / Docs
 		LogLevel:       strings.ToLower(getenv("LOG_LEVEL", "info")),
 		LogPretty:      getbool("LOG_PRETTY", false),
+		RedactHeaders:  splitCSV(getenv("LOG_REDACT_HEADERS", "Authorization,X-API-Key")),
 		SwaggerEnabled: getbool("SWAGGER_ENABLED", false),
 		APIBasePath:    normalizeBasePath(getenv("API_BASE_PATH", "/api/v1")),
 

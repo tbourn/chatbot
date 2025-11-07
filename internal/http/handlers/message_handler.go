@@ -25,12 +25,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	zlog "github.com/rs/zerolog/log"
 	"gorm.io/gorm"
 
 	"github.com/tbourn/go-chat-backend/internal/domain"
+	"github.com/tbourn/go-chat-backend/internal/http/ctxutil"
 	"github.com/tbourn/go-chat-backend/internal/repo"
 	"github.com/tbourn/go-chat-backend/internal/services"
-	"github.com/tbourn/go-chat-backend/internal/utils"
 )
 
 //
@@ -62,28 +63,6 @@ type ListMessagesResponse struct {
 //
 // Helpers
 //
-
-// clampMsgPagination parses page/page_size from query parameters, applies sane
-// defaults and caps, and returns the validated (page, pageSize).
-func clampMsgPagination(c *gin.Context) (page, pageSize int) {
-	const (
-		defaultPage     = 1
-		defaultPageSize = 20
-		maxPageSize     = 100
-	)
-	page = utils.AtoiDefault(c.Query("page"), defaultPage)
-	if page < 1 {
-		page = 1
-	}
-	pageSize = utils.AtoiDefault(c.Query("page_size"), defaultPageSize)
-	if pageSize < 1 {
-		pageSize = 1
-	}
-	if pageSize > maxPageSize {
-		pageSize = maxPageSize
-	}
-	return
-}
 
 // nlCollapseRE collapses runs of 3+ newlines to two, preserving paragraphs.
 var nlCollapseRE = regexp.MustCompile(`\n{3,}`)
@@ -162,19 +141,15 @@ func (h *Handlers) PostMessage(c *gin.Context) {
 		return
 	}
 
-	currentUser := userID(c)
+	currentUser := ctxutil.UserID(c)
 
 	// Idempotency (replay path) – read validated key if present.
 	idemKey, _ := middlewareGetIdempotencyKey(c)
-	if idemKey != "" {
-		if svc, okSvc := h.msgSvc.(*services.MessageService); okSvc && svc.DB != nil {
-			if rec, err := repo.GetIdempotency(ctx, svc.DB, currentUser, chatID, idemKey, time.Now().UTC()); err == nil && rec != nil {
-				if prev, err2 := repo.GetMessage(svc.DB, rec.MessageID); err2 == nil {
-					c.Header("Idempotency-Replayed", "true")
-					ok(c, http.StatusOK, PostMessageResponse{Message: prev})
-					return
-				}
-			}
+	if idemKey != "" && h.idemSvc != nil {
+		if prev, found, err := h.idemSvc.Replay(ctx, currentUser, chatID, idemKey, time.Now().UTC()); err == nil && found {
+			c.Header("Idempotency-Replayed", "true")
+			ok(c, http.StatusOK, PostMessageResponse{Message: prev})
+			return
 		}
 	}
 
@@ -195,10 +170,9 @@ func (h *Handlers) PostMessage(c *gin.Context) {
 	}
 
 	// Idempotency (store path) – best effort.
-	if idemKey != "" {
-		if svc, ok := h.msgSvc.(*services.MessageService); ok && svc.DB != nil {
-			ttl := 24 * time.Hour
-			_, _ = repo.CreateIdempotency(ctx, svc.DB, currentUser, chatID, idemKey, m.ID, http.StatusOK, ttl)
+	if idemKey != "" && h.idemSvc != nil {
+		if err := h.idemSvc.Record(ctx, currentUser, chatID, idemKey, m.ID, http.StatusOK); err != nil {
+			zlog.Ctx(ctx).Warn().Err(err).Msg("idempotency store failed")
 		}
 	}
 
@@ -251,7 +225,11 @@ func (h *Handlers) ListMessages(c *gin.Context) {
 		}
 	}
 
-	page, pageSize := clampMsgPagination(c)
+	page, pageSize := ctxutil.PaginationParams(c, ctxutil.PaginationConfig{
+		DefaultPage:     1,
+		DefaultPageSize: 20,
+		MaxPageSize:     100,
+	})
 
 	items, total, err := h.msgSvc.ListPage(ctx, chatID, page, pageSize)
 	if err != nil {

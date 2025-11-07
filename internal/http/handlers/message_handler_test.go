@@ -78,6 +78,33 @@ func (stubChatSvc) ListPage(context.Context, string, int, int) ([]domain.Chat, i
 }
 func (stubChatSvc) UpdateTitle(context.Context, string, string, string) error { return nil }
 
+type stubIdemSvc struct {
+	exists func(context.Context, string, string, string, time.Time) (bool, error)
+	replay func(context.Context, string, string, string, time.Time) (*domain.Message, bool, error)
+	record func(context.Context, string, string, string, string, int) error
+}
+
+func (s stubIdemSvc) Exists(ctx context.Context, user, chat, key string, now time.Time) (bool, error) {
+	if s.exists != nil {
+		return s.exists(ctx, user, chat, key, now)
+	}
+	return false, nil
+}
+
+func (s stubIdemSvc) Replay(ctx context.Context, user, chat, key string, now time.Time) (*domain.Message, bool, error) {
+	if s.replay != nil {
+		return s.replay(ctx, user, chat, key, now)
+	}
+	return nil, false, nil
+}
+
+func (s stubIdemSvc) Record(ctx context.Context, user, chat, key, messageID string, status int) error {
+	if s.record != nil {
+		return s.record(ctx, user, chat, key, messageID, status)
+	}
+	return nil
+}
+
 // ---------- helpers-only unit tests ----------
 
 func Test_sanitizeContent_and_clamp_and_idemKey(t *testing.T) {
@@ -91,22 +118,6 @@ func Test_sanitizeContent_and_clamp_and_idemKey(t *testing.T) {
 	// Also ensure it trims to empty
 	if sanitizeContent(" \r\n\t ") != "" {
 		t.Fatalf("sanitizeContent should trim to empty")
-	}
-
-	// clampMsgPagination:
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	req := httptest.NewRequest("GET", "/?page=-3&page_size=9999", nil)
-	c.Request = req
-	p, ps := clampMsgPagination(c)
-	if p != 1 || ps != 100 {
-		t.Fatalf("clamp: got page=%d size=%d; want 1,100", p, ps)
-	}
-	c, _ = gin.CreateTestContext(httptest.NewRecorder())
-	req = httptest.NewRequest("GET", "/?page=&page_size=0", nil)
-	c.Request = req
-	p, ps = clampMsgPagination(c)
-	if p != 1 || ps != 1 {
-		t.Fatalf("clamp defaults: got %d,%d", p, ps)
 	}
 
 	// middlewareGetIdempotencyKey
@@ -131,7 +142,7 @@ func TestPostMessage_InvalidUUID_and_Binding_and_TooLong(t *testing.T) {
 			return &domain.Message{ID: "m1", ChatID: chatID, Role: "assistant", Content: "ok"}, nil
 		},
 		list: nil,
-	}, &services.FeedbackService{DB: nil})
+	}, &services.FeedbackService{DB: nil}, stubIdemSvc{})
 
 	r.POST("/chats/:id/messages", h.PostMessage)
 
@@ -154,7 +165,7 @@ func TestPostMessage_InvalidUUID_and_Binding_and_TooLong(t *testing.T) {
 	// too long content (discoverMaxPromptRunes uses *services.MessageService)
 	db := newTestDB(t)
 	ms := &services.MessageService{DB: db, MaxPromptRunes: 5}
-	h2 := New(stubChatSvc{}, ms, &services.FeedbackService{DB: db})
+	h2 := New(stubChatSvc{}, ms, &services.FeedbackService{DB: db}, stubIdemSvc{})
 	r2 := gin.New()
 	r2.POST("/chats/:id/messages", h2.PostMessage)
 	long := "123456"
@@ -193,7 +204,8 @@ func TestPostMessage_Idempotency_Replay_and_Store(t *testing.T) {
 	}
 
 	ms := &services.MessageService{DB: db, MaxPromptRunes: 2000}
-	h := New(stubChatSvc{}, ms, &services.FeedbackService{DB: db})
+	idemSvc := services.NewIdempotencyService(db, 24*time.Hour)
+	h := New(stubChatSvc{}, ms, &services.FeedbackService{DB: db}, idemSvc)
 
 	r := gin.New()
 	r.POST("/chats/:id/messages", h.PostMessage)
@@ -270,7 +282,7 @@ func TestListMessages_UUID_And_ETag304(t *testing.T) {
 	}
 
 	ms := &services.MessageService{DB: db}
-	h := New(stubChatSvc{}, ms, &services.FeedbackService{DB: db})
+	h := New(stubChatSvc{}, ms, &services.FeedbackService{DB: db}, idemSvc)
 
 	r := gin.New()
 	r.GET("/chats/:id/messages", h.ListMessages)
@@ -321,7 +333,7 @@ func TestListMessages_Success_And_Errors(t *testing.T) {
 		},
 		answer: nil,
 	}
-	hOK := New(stubChatSvc{}, svcOK, &services.FeedbackService{DB: nil})
+	hOK := New(stubChatSvc{}, svcOK, &services.FeedbackService{DB: nil}, stubIdemSvc{})
 	r := gin.New()
 	r.GET("/chats/:id/messages", hOK.ListMessages)
 
@@ -347,7 +359,7 @@ func TestListMessages_Success_And_Errors(t *testing.T) {
 		},
 		answer: nil,
 	}
-	h404 := New(stubChatSvc{}, svc404, &services.FeedbackService{DB: nil})
+	h404 := New(stubChatSvc{}, svc404, &services.FeedbackService{DB: nil}, stubIdemSvc{})
 	r2 := gin.New()
 	r2.GET("/chats/:id/messages", h404.ListMessages)
 
@@ -365,7 +377,7 @@ func TestListMessages_Success_And_Errors(t *testing.T) {
 		},
 		answer: nil,
 	}
-	h500 := New(stubChatSvc{}, svc500, &services.FeedbackService{DB: nil})
+	h500 := New(stubChatSvc{}, svc500, &services.FeedbackService{DB: nil}, stubIdemSvc{})
 	r3 := gin.New()
 	r3.GET("/chats/:id/messages", h500.ListMessages)
 
