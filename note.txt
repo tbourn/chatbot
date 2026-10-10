@@ -1,0 +1,134 @@
+cmd/server/main.go
+
+Is interacting with the db on the endpoint's handler level needed? Could you suggest an alternative?
+
+Dockerfile
+
+Could you please elaborate on the use of hashes in the versions of images you are declaring? What are the benefits of doing that?
+Also, having a string template for the GO_VERSION plays well with the fact that the hash is hardcoded?
+
+missing value here org.opencontainers.image.source="https://github.com/your/repo"
+
+
+
+ARG DATE
+
+ENV GOTOOLCHAIN=auto \
+    CGO_ENABLED=1
+
+    Could you please explain why you have set this to 1?
+
+
+cmd/server/main.go
+	r.Use(gzip.Gzip(gzip.DefaultCompression))
+
+	// Simple user identity stub
+	r.Use(func(c *gin.Context) {
+@alexandros-georgantas alexandros-georgantas 2 weeks ago
+Is this the right place for this middleware? Could you suggest a refactoring approach?
+
+docker-compose.yml
+    ports:
+      - "${PORT:-8080}:8080"
+
+    volumes:
+@alexandros-georgantas alexandros-georgantas 2 weeks ago
+Please explain the need of the configuration from line 55 to 67.
+
+module github.com/tbourn/go-chat-backend
+
+go 1.23.0
+@alexandros-georgantas alexandros-georgantas 2 weeks ago
+why this version go?
+
+internal/domain/idempotency.go
+// keyed by (user_id, chat_id, key). It enables safe retries for POST/PUT
+// operations by returning the originally produced response without re-executing
+// side effects.
+type Idempotency struct {
+@alexandros-georgantas alexandros-georgantas 2 weeks ago
+Please explain the concept of priorities here and what you want to achieve
+
+internal/domain/models.go
+@@ -0,0 +1,91 @@
+// Package domain defines the persistence models for chats, messages, and
+@alexandros-georgantas alexandros-georgantas 2 weeks ago
+You have used Gorm as your ORM of choice. Given that have you considered using https://gorm.io/docs/models.html#gorm-Model as embedded struct to simplify your code and utilise more your chosen ORM?
+
+internal/http/handlers/chat_handler.go
+// userID extracts the authenticated user id from Gin context (set by upstream
+// middleware). If absent, it falls back to "X-User-ID" header (tests use it),
+// and finally to "demo-user". It never touches c.Request if it's nil.
+func userID(c *gin.Context) string {
+@alexandros-georgantas alexandros-georgantas 2 weeks ago
+could this be extracted to a utilities package?
+
+internal/http/handlers/chat_handler.go
+
+// clampPagination parses and bounds page and page_size query params to sane
+// defaults and limits, returning (page, pageSize).
+func clampPagination(c *gin.Context) (page, pageSize int) {
+@alexandros-georgantas alexandros-georgantas 2 weeks ago
+You are concerned with setting sane defaults when it comes to pagination in many places in your codebase (e.g. chat service, message service). Is there a specific reason for that?
+
+
+internal/http/handlers/chat_handler.go
+// @Failure     400  {object} handlers.ErrorResponse "Bad request"
+// @Failure     404  {object} handlers.ErrorResponse "Chat not found"
+// @Failure     500  {object} handlers.ErrorResponse "Internal error"
+// @Router      /chats/{id}/title [put]
+@alexandros-georgantas alexandros-georgantas 2 weeks ago
+is this endpoint RESTful? Is the title path required?
+
+internal/http/handlers/message_handler.go
+
+// clampMsgPagination parses page/page_size from query parameters, applies sane
+// defaults and caps, and returns the validated (page, pageSize).
+func clampMsgPagination(c *gin.Context) (page, pageSize int) {
+@alexandros-georgantas alexandros-georgantas 2 weeks ago
+DRY?
+
+internal/http/middleware/idempotency.go
+// the request context so downstream handlers can:
+//   - read the normalized key (GetIdempotencyKey)
+//   - detect replayed requests (IsReplay)
+//   - bypass rate limiting when a replay is served (via an internal flag)
+@alexandros-georgantas alexandros-georgantas 2 weeks ago
+Could you please explain this decision?
+
+internal/http/middleware/ratelimit.go
+@@ -0,0 +1,189 @@
+// Package middleware contains shared Gin middleware used by the HTTP layer.
+@alexandros-georgantas alexandros-georgantas 2 weeks ago
+Could you suggest a different approach for setting up a rate limiter e.g. on a different component of the system?
+
+internal/http/middleware/security.go
+@@ -0,0 +1,152 @@
+// Package middleware contains shared Gin middleware used by the HTTP layer.
+@alexandros-georgantas alexandros-georgantas 2 weeks ago
+Could you please argue about the reasons why you've decided your application server to also handle HSTS and rate limiting?
+
+internal/http/router.go
+	// 3) Structured logging with redaction
+	r.Use(middleware.RedactingLogger(middleware.RedactOptions{
+		MaskHeaders: []string{
+			"X-API-Key", // project-specific sensitive header example
+@alexandros-georgantas alexandros-georgantas 2 weeks ago
+is this populated anywhere?
+
+internal/repo/db.go
+	}
+
+	// PRAGMAs
+	db.Exec("PRAGMA journal_mode=WAL;")
+@alexandros-georgantas alexandros-georgantas 2 weeks ago
+Could you please explain why you chose to use WAL instead of SQLite's default journal mode?
+
+
+
+
+
+
+
+
+
